@@ -33,21 +33,27 @@ import java.util.Map;
 import java.util.Set;
 
 public class SignInActivity extends AppCompatActivity implements View.OnClickListener {
-
-
+    private static final String TAG = "SignInActivity";
     public static final String MY_PREFS_NAME = "MyPrefsFile";
 
-
-    Button botonregistro, button_login;
-    EditText login_pass, login_mail;
-    FirebaseAuth.AuthStateListener mAuthListener;
+    private Button botonregistro, button_login;
+    private EditText login_pass, login_mail;
+    private FirebaseAuth.AuthStateListener mAuthListener;
     private ProgressDialog progresdialog;
+    private FirebaseAuth mAuth;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_sign_in);
         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
+        
+        initializeViews();
+        setupFirebaseAuth();
+        setupEmailAutocomplete();
+    }
+
+    private void initializeViews() {
         button_login = findViewById(R.id.button_login);
         botonregistro = findViewById(R.id.botonregistro);
         login_pass = findViewById(R.id.login_pass);
@@ -56,96 +62,138 @@ public class SignInActivity extends AppCompatActivity implements View.OnClickLis
 
         botonregistro.setOnClickListener(this);
         button_login.setOnClickListener(this);
+    }
 
+    private void setupFirebaseAuth() {
+        mAuth = FirebaseAuth.getInstance();
         mAuthListener = new FirebaseAuth.AuthStateListener() {
-
             @Override
             public void onAuthStateChanged(@NonNull FirebaseAuth firebaseAuth) {
                 FirebaseUser user = firebaseAuth.getCurrentUser();
                 if (user != null) {
-                    Log.i("SESION", "Sesión iniciada con email: " + user.getEmail());
-                    // acceso();
+                    Log.i(TAG, "Sesión iniciada con email: " + user.getEmail());
                 } else {
-                    Log.i("SESION", "Sesión cerrada");
+                    Log.i(TAG, "Sesión cerrada");
                 }
             }
         };
+    }
 
-        SharedPreferences prefs = getSharedPreferences(MY_PREFS_NAME, MODE_PRIVATE);
-        Map<String, ?> allEntries = prefs.getAll();
+    private void setupEmailAutocomplete() {
+        try {
+            SharedPreferences prefs = getSharedPreferences(MY_PREFS_NAME, MODE_PRIVATE);
+            Map<String, ?> allEntries = prefs.getAll();
 
+            List<String> emailList = new ArrayList<>();
+            for (Map.Entry<String, ?> entry : allEntries.entrySet()) {
+                emailList.add(entry.getKey());
+            }
 
-        List<String> emailList = new ArrayList<String>();
-        for(Map.Entry<String, ?> entry : allEntries.entrySet()) {
-            emailList.add(entry.getKey());
+            String[] savedEmails = emailList.toArray(new String[0]);
+
+            ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this, android.R.layout.select_dialog_item, savedEmails);
+            
+            AutoCompleteTextView actv = findViewById(R.id.login_mail);
+            if (actv != null) {
+                actv.setThreshold(1);
+                actv.setAdapter(adapter);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting up email autocomplete", e);
         }
-
-        String [] savedEmails = new String[emailList.size()];
-
-        savedEmails = emailList.toArray(savedEmails);
-
-        //Creating the instance of ArrayAdapter containing list of fruit names
-        ArrayAdapter<String> adapter = new ArrayAdapter<String>
-                (this, android.R.layout.select_dialog_item, savedEmails);
-        //Getting the instance of AutoCompleteTextView
-        AutoCompleteTextView actv = (AutoCompleteTextView) findViewById(R.id.login_mail);
-        actv.setThreshold(1);//will start working from first character
-        actv.setAdapter(adapter);//setting the adapter data into the AutoCompleteTextView
-
     }
 
     private void registrar(String email, String pass) {
-        FirebaseAuth.getInstance().createUserWithEmailAndPassword(email, pass).addOnCompleteListener(new OnCompleteListener<AuthResult>() {
-            @Override
-            public void onComplete(@NonNull Task<AuthResult> task) {
-                if (task.isSuccessful()) {
-                    Log.i("SESION", "Usuario creado correctamente");
-                    showToast("Usuario creado correctamente");
+        if (!ValidationUtils.isValidEmail(email)) {
+            showToast(ValidationUtils.getEmailErrorMessage());
+            progresdialog.dismiss();
+            return;
+        }
 
-                } else {
-                    Log.e("SESION", task.getException().getMessage() + "");
-                    showToast("No se creo el usuario, verifique datos");
+        if (!ValidationUtils.isValidPassword(pass)) {
+            showToast(ValidationUtils.getPasswordErrorMessage());
+            progresdialog.dismiss();
+            return;
+        }
+
+        mAuth.createUserWithEmailAndPassword(email, pass)
+            .addOnCompleteListener(this, new OnCompleteListener<AuthResult>() {
+                @Override
+                public void onComplete(@NonNull Task<AuthResult> task) {
+                    if (task.isSuccessful()) {
+                        Log.i(TAG, "Usuario creado correctamente");
+                        showToast("Usuario creado correctamente");
+                    } else {
+                        Log.e(TAG, "Error al crear usuario: " + task.getException().getMessage());
+                        showToast("No se pudo crear el usuario. Verifique los datos.");
+                    }
+                    progresdialog.dismiss();
                 }
-                progresdialog.dismiss();
-            }
-        });
+            });
     }
 
     private void iniciar_sesion(String email, String pass) {
-        FirebaseAuth.getInstance().signInWithEmailAndPassword(email, pass).addOnCompleteListener(new OnCompleteListener<AuthResult>() {
-            @Override
-            public void onComplete(@NonNull Task<AuthResult> task) {
-                if (task.isSuccessful()) {
-                    Log.i("SESION", "Sesión iniciada");
-                    acceso();
-                } else {
-                    String errorString = task.getException().getMessage();
-                    Log.e("SESION", errorString + "");
-                    if (errorString.equals("A network error (such as timeout, interrupted connection or unreachable host) has occurred.")){
-                        showToast("No hay conexión.");
-                    }else{
-                        showToast("El usuario no está registrado");
+        if (!ValidationUtils.isValidEmail(email)) {
+            showToast(ValidationUtils.getEmailErrorMessage());
+            progresdialog.dismiss();
+            return;
+        }
+
+        if (!ValidationUtils.isValidPassword(pass)) {
+            showToast(ValidationUtils.getPasswordErrorMessage());
+            progresdialog.dismiss();
+            return;
+        }
+
+        mAuth.signInWithEmailAndPassword(email, pass)
+            .addOnCompleteListener(this, new OnCompleteListener<AuthResult>() {
+                @Override
+                public void onComplete(@NonNull Task<AuthResult> task) {
+                    if (task.isSuccessful()) {
+                        Log.i(TAG, "Sesión iniciada correctamente");
+                        saveEmailToPreferences(email);
+                        acceso();
+                    } else {
+                        String errorString = task.getException().getMessage();
+                        Log.e(TAG, "Error al iniciar sesión: " + errorString);
+                        
+                        if (errorString != null && errorString.contains("network error")) {
+                            showToast("No hay conexión a internet.");
+                        } else {
+                            showToast("Credenciales incorrectas o usuario no registrado.");
+                        }
                     }
+                    progresdialog.dismiss();
                 }
-                progresdialog.dismiss();
-            }
-        });
+            });
+    }
+
+    private void saveEmailToPreferences(String email) {
+        try {
+            SharedPreferences.Editor editor = getSharedPreferences(MY_PREFS_NAME, MODE_PRIVATE).edit();
+            editor.putString(email, "email");
+            editor.apply();
+        } catch (Exception e) {
+            Log.e(TAG, "Error saving email to preferences", e);
+        }
     }
 
     public boolean isOnline() {
-        ConnectivityManager cm =
-                (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-
-        return cm.getActiveNetworkInfo() != null &&
-                cm.getActiveNetworkInfo().isConnectedOrConnecting();
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+        return cm.getActiveNetworkInfo() != null && cm.getActiveNetworkInfo().isConnectedOrConnecting();
     }
 
     private void acceso() {
-        startActivity(new Intent(this, ObtainPressureActivity.class));
+        if (!isFinishing() && !isDestroyed()) {
+            startActivity(new Intent(this, ObtainPressureActivity.class));
+        }
     }
 
     private void showToast(String text) {
-        Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+        if (!isFinishing() && !isDestroyed()) {
+            Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+        }
     }
 
     @Override
@@ -155,60 +203,60 @@ public class SignInActivity extends AppCompatActivity implements View.OnClickLis
 
     @Override
     public void onClick(View view) {
-        switch (view.getId()) {
-            case R.id.button_login:
-
-                String emailInicio = login_mail.getText().toString();
-                String passInicio = login_pass.getText().toString();
-
-                if (TextUtils.isEmpty(passInicio)) {
-                    showToast("Se debe ingresar un email");
-                    return;
-                }
-                if (TextUtils.isEmpty(emailInicio)) {
-                    showToast("Se debe ingresar un contraseña");
-                    return;
-                }
-                progresdialog.setMessage("Iniciando sesión...");
-                progresdialog.show();
-                iniciar_sesion(emailInicio, passInicio);
-                SharedPreferences.Editor editor = getSharedPreferences(MY_PREFS_NAME, MODE_PRIVATE).edit();
-                editor.putString(emailInicio,"email");
-                editor.apply();
-                break;
-            case R.id.botonregistro:
-                String emailReg = login_mail.getText().toString();
-                String passReg = login_pass.getText().toString();
-
-                if (TextUtils.isEmpty(emailReg)) {
-                    showToast("Se debe ingresar un email");
-                    return;
-                }
-                if (TextUtils.isEmpty(passReg)) {
-                    showToast("Se debe ingresar un contraseña");
-                    return;
-                }
-                progresdialog.setMessage("Realizando registro...");
-                progresdialog.show();
-                registrar(emailReg, passReg);
-                break;
+        if (view.getId() == R.id.button_login) {
+            handleLoginClick();
+        } else if (view.getId() == R.id.botonregistro) {
+            handleRegisterClick();
         }
     }
 
+    private void handleLoginClick() {
+        String emailInicio = login_mail.getText().toString().trim();
+        String passInicio = login_pass.getText().toString().trim();
+
+        if (TextUtils.isEmpty(emailInicio)) {
+            showToast("Se debe ingresar un email");
+            return;
+        }
+        if (TextUtils.isEmpty(passInicio)) {
+            showToast("Se debe ingresar una contraseña");
+            return;
+        }
+
+        progresdialog.setMessage("Iniciando sesión...");
+        progresdialog.show();
+        iniciar_sesion(emailInicio, passInicio);
+    }
+
+    private void handleRegisterClick() {
+        String emailReg = login_mail.getText().toString().trim();
+        String passReg = login_pass.getText().toString().trim();
+
+        if (TextUtils.isEmpty(emailReg)) {
+            showToast("Se debe ingresar un email");
+            return;
+        }
+        if (TextUtils.isEmpty(passReg)) {
+            showToast("Se debe ingresar una contraseña");
+            return;
+        }
+
+        progresdialog.setMessage("Realizando registro...");
+        progresdialog.show();
+        registrar(emailReg, passReg);
+    }
 
     @Override
     protected void onStart() {
         super.onStart();
-        FirebaseAuth.getInstance().addAuthStateListener(mAuthListener);
+        mAuth.addAuthStateListener(mAuthListener);
     }
 
     @Override
     protected void onStop() {
         super.onStop();
         if (mAuthListener != null) {
-            FirebaseAuth.getInstance().removeAuthStateListener(mAuthListener);
-        } else {
-            showToast("Error al leer los campos");
+            mAuth.removeAuthStateListener(mAuthListener);
         }
     }
 }

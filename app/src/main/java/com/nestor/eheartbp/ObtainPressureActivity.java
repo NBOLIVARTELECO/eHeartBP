@@ -12,15 +12,16 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
 
-import com.github.mikephil.charting.data.Entry;
 import com.google.firebase.database.DataSnapshot;
 import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.database.ValueEventListener;
+import com.nestor.eheartbp.objetos.FirebaseReferences;
 
-import java.util.Calendar;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 
 import static com.nestor.eheartbp.Globals.dia;
 import static com.nestor.eheartbp.Globals.pul;
@@ -31,17 +32,29 @@ import static com.nestor.eheartbp.Globals.diastolica;
 import static com.nestor.eheartbp.Globals.sistolica;
 import static com.nestor.eheartbp.Globals.tiempo_toma;
 
-
 public class ObtainPressureActivity extends AppCompatActivity {
-    Button ob;
-    // public TextView textView9;
+    private static final String TAG = "ObtainPressureActivity";
+    private static final int TOTAL_FIREBASE_CALLS = 4;
+    
+    private Button obtainButton;
+    private int completedCalls = 0;
+    private boolean dataReady = false;
+    private boolean isObtainingData = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_obtain_pressure);
         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-        ob = findViewById(R.id.obtainButton);
+        
+        initializeViews();
+    }
+
+    private void initializeViews() {
+        obtainButton = findViewById(R.id.obtainButton);
+        if (obtainButton == null) {
+            Log.e(TAG, "Obtain button not found in layout");
+        }
     }
 
     @Override
@@ -51,7 +64,9 @@ public class ObtainPressureActivity extends AppCompatActivity {
     }
 
     private void showToast(String text) {
-        Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+        if (!isFinishing() && !isDestroyed()) {
+            Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
+        }
     }
 
     @Override
@@ -65,133 +80,187 @@ public class ObtainPressureActivity extends AppCompatActivity {
     }
 
     public void obtain(View view) {
-        ob.setBackgroundColor(Color.GRAY);
-        ob.setText("Cargando...");
+        if (isObtainingData) {
+            showToast("Ya se están obteniendo datos...");
+            return;
+        }
 
+        isObtainingData = true;
+        completedCalls = 0;
+        dataReady = false;
+
+        if (obtainButton != null) {
+            obtainButton.setBackgroundColor(Color.GRAY);
+            obtainButton.setText("Cargando...");
+        }
+
+        // Limpiar listas antes de obtener nuevos datos
+        clearGlobalLists();
+
+        // Obtener datos de Firebase
+        obtainDataFromFirebase();
+    }
+
+    private void clearGlobalLists() {
+        try {
+            pulso.clear();
+            diastolica.clear();
+            sistolica.clear();
+            tiempo_toma.clear();
+        } catch (Exception e) {
+            Log.e(TAG, "Error clearing global lists", e);
+        }
+    }
+
+    private void obtainDataFromFirebase() {
         DatabaseReference datos = FirebaseDatabase.getInstance().getReference();
-        DatabaseReference mensajeref = datos.child("Datos/Usuario_1/Pulso");
 
-        ////////////////////////////////////////////////////////////
-        //////////////////////////////////////////////////////////
-
-        for (Iterator<String> iterator = pulso.iterator(); iterator.hasNext();) {
-
-            String dato = iterator.next();
-            iterator.remove();;
-        }
-        for (Iterator<String> iterator = diastolica.iterator(); iterator.hasNext();) {
-
-            String dato = iterator.next();
-            iterator.remove();;
-        }
-        for (Iterator<String> iterator = sistolica.iterator(); iterator.hasNext();) {
-
-            String dato = iterator.next();
-            iterator.remove();;
-        }
-        for (Iterator<String> iterator = tiempo_toma.iterator(); iterator.hasNext();) {
-
-            String dato = iterator.next();
-            iterator.remove();;
-        }
-
-
-        /////////////////////////////////////////////////
-        //////////////////////////////////////////7
-
-        mensajeref.addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override
-            public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
-                // ArrayList<String> pulso = new ArrayList<String>();
-
-                for (DataSnapshot dataSnapshot1 : dataSnapshot.getChildren()) {
-                    pulso.add(dataSnapshot1.getValue().toString());
-
+        // Obtener datos de pulso
+        datos.child("Datos/Usuario_1/Pulso")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                    processPulseData(dataSnapshot);
+                    checkAllDataReady();
                 }
+
+                @Override
+                public void onCancelled(@NonNull DatabaseError databaseError) {
+                    handleFirebaseError(databaseError, "pulso");
+                }
+            });
+
+        // Obtener datos de diastólica
+        datos.child("Datos/Usuario_1/Diastolica")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                    processDiastolicData(dataSnapshot);
+                    checkAllDataReady();
+                }
+
+                @Override
+                public void onCancelled(@NonNull DatabaseError databaseError) {
+                    handleFirebaseError(databaseError, "diastólica");
+                }
+            });
+
+        // Obtener datos de sistólica
+        datos.child("Datos/Usuario_1/Sistolica")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                    processSystolicData(dataSnapshot);
+                    checkAllDataReady();
+                }
+
+                @Override
+                public void onCancelled(@NonNull DatabaseError databaseError) {
+                    handleFirebaseError(databaseError, "sistólica");
+                }
+            });
+
+        // Obtener datos de tiempo
+        datos.child("Datos/Usuario_1/Tiempo")
+            .addListenerForSingleValueEvent(new ValueEventListener() {
+                @Override
+                public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
+                    processTimeData(dataSnapshot);
+                    checkAllDataReady();
+                }
+
+                @Override
+                public void onCancelled(@NonNull DatabaseError databaseError) {
+                    handleFirebaseError(databaseError, "tiempo");
+                }
+            });
+    }
+
+    private void processPulseData(DataSnapshot dataSnapshot) {
+        try {
+            for (DataSnapshot snapshot : dataSnapshot.getChildren()) {
+                String value = snapshot.getValue().toString();
+                pulso.add(value);
+            }
+            
+            if (!pulso.isEmpty()) {
                 pul = Integer.parseInt(pulso.get(pulso.size() - 1));
-
-
-                startActivity(new Intent(ObtainPressureActivity.this, ViewMeasurementActivity.class));
             }
+        } catch (Exception e) {
+            Log.e(TAG, "Error processing pulse data", e);
+        }
+    }
 
-            @Override
-            public void onCancelled(@NonNull DatabaseError databaseError) {
-                databaseError.toException();
-                showToast("Error al obtener los datos");
+    private void processDiastolicData(DataSnapshot dataSnapshot) {
+        try {
+            for (DataSnapshot snapshot : dataSnapshot.getChildren()) {
+                String value = snapshot.getValue().toString();
+                diastolica.add(value);
             }
-        });
-///////////////////////////////////
-        /////////////////////////////
-        DatabaseReference mensajeref2 = datos.child("Datos/Usuario_1/Diastolica");
-
-        mensajeref2.addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override
-            public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
-                // ArrayList<String> diastolica = new ArrayList<String>();
-
-                for (DataSnapshot dataSnapshot1 : dataSnapshot.getChildren()) {
-                    diastolica.add(dataSnapshot1.getValue().toString());
-                }
+            
+            if (!diastolica.isEmpty()) {
                 dia = Integer.parseInt(diastolica.get(diastolica.size() - 1));
-                startActivity(new Intent(ObtainPressureActivity.this, ViewMeasurementActivity.class));
             }
+        } catch (Exception e) {
+            Log.e(TAG, "Error processing diastolic data", e);
+        }
+    }
 
-            @Override
-            public void onCancelled(@NonNull DatabaseError databaseError) {
-                databaseError.toException();
-                showToast("Error al obtener los datos");
+    private void processSystolicData(DataSnapshot dataSnapshot) {
+        try {
+            for (DataSnapshot snapshot : dataSnapshot.getChildren()) {
+                String value = snapshot.getValue().toString();
+                sistolica.add(value);
             }
-        });
-
-/////////////////////////////////////////
-/////////////////////////////////////
-        DatabaseReference mensajeref3 = datos.child("Datos/Usuario_1/Sistolica");
-
-        mensajeref3.addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override
-            public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
-                //  ArrayList<String> sistolica = new ArrayList<String>();
-
-                for (DataSnapshot dataSnapshot1 : dataSnapshot.getChildren()) {
-                    sistolica.add(dataSnapshot1.getValue().toString());
-                }
+            
+            if (!sistolica.isEmpty()) {
                 sys = Integer.parseInt(sistolica.get(sistolica.size() - 1));
-                startActivity(new Intent(ObtainPressureActivity.this, ViewMeasurementActivity.class));
             }
+        } catch (Exception e) {
+            Log.e(TAG, "Error processing systolic data", e);
+        }
+    }
 
-            @Override
-            public void onCancelled(@NonNull DatabaseError databaseError) {
-                databaseError.toException();
-                showToast("Error al obtener los datos");
+    private void processTimeData(DataSnapshot dataSnapshot) {
+        try {
+            for (DataSnapshot snapshot : dataSnapshot.getChildren()) {
+                String value = snapshot.getValue().toString();
+                tiempo_toma.add(value);
             }
-        });
-///////////////////////////////////
-        /////////////////////////////
-
-        DatabaseReference mensajeref4 = datos.child("Datos/Usuario_1/Tiempo");
-
-        mensajeref4.addListenerForSingleValueEvent(new ValueEventListener() {
-            @Override
-            public void onDataChange(@NonNull DataSnapshot dataSnapshot) {
-                // ArrayList<String> tiempo_toma = new ArrayList<String>();
-
-                for (DataSnapshot dataSnapshot1 : dataSnapshot.getChildren()) {
-                    tiempo_toma.add(dataSnapshot1.getValue().toString());
-                }
+            
+            if (!tiempo_toma.isEmpty()) {
                 time_stamp = Long.parseLong(tiempo_toma.get(tiempo_toma.size() - 1));
-                //  startActivity(new Intent(ObtainPressureActivity.this, ViewMeasurementActivity.class));
             }
+        } catch (Exception e) {
+            Log.e(TAG, "Error processing time data", e);
+        }
+    }
 
-            @Override
-            public void onCancelled(@NonNull DatabaseError databaseError) {
-                databaseError.toException();
-                showToast("Error al obtener los datos");
+    private void handleFirebaseError(DatabaseError databaseError, String dataType) {
+        Log.e(TAG, "Error obteniendo datos de " + dataType + ": " + databaseError.getMessage());
+        showToast("Error al obtener los datos de " + dataType);
+        checkAllDataReady();
+    }
+
+    private void checkAllDataReady() {
+        completedCalls++;
+        
+        if (completedCalls >= TOTAL_FIREBASE_CALLS && !dataReady) {
+            dataReady = true;
+            isObtainingData = false;
+            navigateToMeasurementView();
+        }
+    }
+
+    private void navigateToMeasurementView() {
+        if (!isFinishing() && !isDestroyed()) {
+            try {
+                Intent intent = new Intent(ObtainPressureActivity.this, ViewMeasurementActivity.class);
+                startActivity(intent);
+            } catch (Exception e) {
+                Log.e(TAG, "Error navigating to ViewMeasurementActivity", e);
+                showToast("Error al mostrar la medición");
             }
-        });
-
-/////////////////////////////////////////
-/////////////////////////////////////
-        //  startActivity(new Intent(ObtainPressureActivity.this, ViewMeasurementActivity.class));
-
+        }
     }
 }

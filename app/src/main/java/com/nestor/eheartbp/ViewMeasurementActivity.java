@@ -28,68 +28,99 @@ import static com.nestor.eheartbp.Globals.pul;
 import static com.nestor.eheartbp.Globals.sys;
 
 public class ViewMeasurementActivity extends AppCompatActivity {
+    private static final String TAG = "ViewMeasurementActivity";
 
-    View.OnFocusChangeListener listener;
-
-    public TextView editSys;
-    public TextView editPul;
-    public TextView editDia;
+    private TextView editSys;
+    private TextView editPul;
+    private TextView editDia;
     private TextView fecha;
     private TextView time;
     private TextView time_stamp;
-
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_view_measurement);
         overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out);
-        //
-        editPul =  findViewById(R.id.editPul);
-        editSys =  findViewById(R.id.editSys);
-        editDia =  findViewById(R.id.editDia);
-
-        fecha =  findViewById(R.id.textView4);
-        time =  findViewById(R.id.textView5);
-        time_stamp =  findViewById(R.id.textView7);
-        //
-        editPul.setText(pul.toString());
-        editDia.setText(dia.toString());
-        editSys.setText(sys.toString());
-
-
-        Calendar date = Calendar.getInstance();
-
-        date.setTimeInMillis(Globals.time_stamp);
-
-        date.add(Calendar.MONTH, 1);
-        time_stamp.setText(date.get(Calendar.DAY_OF_MONTH)+
-                "/"+date.get(Calendar.MONTH)+"/"+date.get(Calendar.YEAR)+"  "
-                +convertDate(date.get(Calendar.HOUR))+":"+convertDate(date.get(Calendar.MINUTE)));
-        //out.println(mydate.get(Calendar.DAY_OF_MONTH)+"."+mydate.get(Calendar.MONTH)+"."+mydate.get(Calendar.YEAR));
-        //
-        Time today = new Time(Time.getCurrentTimezone());
-        today.setToNow();
-        int dia = today.monthDay;
-        int mes = today.month;
-        int ano = today.year;
-        int hora = today.hour;
-        int min = today.minute;
-
-        mes = mes + 1;
-        fecha.setText(mes+" / "+dia+" / "+ano);
-        time.setText(convertDate(hora)+" : "+convertDate(min) + "  Ultima visualización");
-
-
+        
+        initializeViews();
+        updateMeasurementDisplay();
     }
-    public String convertDate(int input) {
-        if (input >= 10) {
-            return String.valueOf(input);
-        } else {
-            return "0" + String.valueOf(input);
+
+    private void initializeViews() {
+        editPul = findViewById(R.id.editPul);
+        editSys = findViewById(R.id.editSys);
+        editDia = findViewById(R.id.editDia);
+        fecha = findViewById(R.id.textView4);
+        time = findViewById(R.id.textView5);
+        time_stamp = findViewById(R.id.textView7);
+    }
+
+    private void updateMeasurementDisplay() {
+        if (!isFinishing() && !isDestroyed()) {
+            // Actualizar valores de presión arterial
+            updateBloodPressureValues();
+            
+            // Actualizar información de fecha y hora
+            updateTimestampDisplay();
+            updateCurrentTimeDisplay();
         }
     }
+
+    private void updateBloodPressureValues() {
+        try {
+            editPul.setText(String.valueOf(pul));
+            editDia.setText(String.valueOf(dia));
+            editSys.setText(String.valueOf(sys));
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating blood pressure values", e);
+        }
+    }
+
+    private void updateTimestampDisplay() {
+        try {
+            if (Globals.time_stamp > 0) {
+                Calendar date = Calendar.getInstance();
+                date.setTimeInMillis(Globals.time_stamp);
+                date.add(Calendar.MONTH, 1);
+                
+                String timestamp = String.format("%d/%d/%d %s:%s",
+                    date.get(Calendar.DAY_OF_MONTH),
+                    date.get(Calendar.MONTH),
+                    date.get(Calendar.YEAR),
+                    formatTime(date.get(Calendar.HOUR)),
+                    formatTime(date.get(Calendar.MINUTE)));
+                    
+                time_stamp.setText(timestamp);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating timestamp display", e);
+        }
+    }
+
+    private void updateCurrentTimeDisplay() {
+        try {
+            Time today = new Time(Time.getCurrentTimezone());
+            today.setToNow();
+            
+            int dia = today.monthDay;
+            int mes = today.month + 1; // Sumar 1 porque los meses van de 0-11
+            int ano = today.year;
+            int hora = today.hour;
+            int min = today.minute;
+
+            fecha.setText(String.format("%d / %d / %d", mes, dia, ano));
+            time.setText(String.format("%s : %s  Ultima visualización", 
+                formatTime(hora), formatTime(min)));
+        } catch (Exception e) {
+            Log.e(TAG, "Error updating current time display", e);
+        }
+    }
+
+    private String formatTime(int time) {
+        return time >= 10 ? String.valueOf(time) : "0" + time;
+    }
+
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.e_heart_menu, menu);
@@ -99,5 +130,10 @@ public class ViewMeasurementActivity extends AppCompatActivity {
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         return MenuActions.options(this, item);
+    }
+
+    @Override
+    public void onBackPressed() {
+        moveTaskToBack(false);
     }
 }
